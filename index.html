@@ -1,0 +1,541 @@
+<html>
+<head>
+<script src='jquery.js'></script>
+<script>
+	// e.g. expression
+	// 42
+	// symbol
+	// "hello"
+	// (1 2 3 4)
+	// nil
+	// (1 . (2 . (3 . (4 . nil))))
+	var Symbol = function(str) {
+		this.name = str;
+	}
+	Symbol.prototype = {
+		toString : function() {
+			return this.name;
+		}
+	}
+	var Cons = function(car, cdr) {
+		this.car = car;
+		this.cdr = cdr;
+	}
+	var Closure = function(lambda, env) {
+		this.lambda = lambda;
+		this.env = env;
+	}
+	function listToArray(l) {
+		var a = [];
+		while (l) {
+			a.push(car(l));
+			l = cdr(l);
+		}
+		return a;
+	}
+	
+	function parseAtom(state) {
+		// An atom is not a composite of expressions.
+		var r = state.get(/^[^\s\(\)\"\']+/);
+		var i = parseInt(r);
+		if (i.toString() == r) return i;
+		if (r == 'nil') return null;
+		return symbol(r);
+	}
+	function parseString(state) {
+		var s = state.get(/^\"[^\"]*\"/);
+		return s;
+	}
+	function readTillParens(state) {
+		state.skip(' ');
+		if (state.peek() == ')') return null;
+		var e = parseSexpr(state);
+		return cons(e, readTillParens(state));
+	}
+	function parseList(state) {
+		// '(' expression '.' expression ')'
+		state.expect('(');
+		if (state.peek() == ')') {
+			state.step();
+			return null;
+		}
+		var car = parseSexpr(state);
+		state.skip(' ');
+		if (state.peek() != '.') {
+			var cdr = readTillParens(state);
+			state.expect(')');
+			return cons(car, cdr);
+		}
+		state.expect('.');
+		state.expect(' ');
+		state.skip(' ');
+		var cdr = parseSexpr(state);
+		state.expect(')');
+		return cons(car, cdr);
+	}
+	var State = function(str) {
+		this.str = str;
+	}
+	State.prototype = {
+		skip : function(c) {
+			while (this.peek() == c) {
+				this.step();
+			}
+		},
+		step : function() {
+			if (this.str.length == 0) return false;
+			this.str = this.str.substr(1);
+			return true;
+		},
+		get : function(regexp) {
+			var r = this.str.match(regexp);
+			if (r == null) throw "Expected match for " + regexp;
+			this.str = this.str.substr(r[0].length);
+			return r[0];
+		},
+		peek : function() {
+			return this.str[0];
+		},
+		expect : function(char) {
+			if (this.peek() != char) throw "Expected character not found \>" + char + "\<. State is >" + this.str + "<.";
+			this.step();
+		},
+		empty : function() {
+			return this.str.length == 0;
+		},
+	}
+	
+	function parseSexpr(state) {
+		var c = state.peek();
+		state.skip(' ');
+		
+		// (quote . (asdfasdfasdf nil))
+		if (c == "'") {
+			state.expect("'");
+			return list(symbol('quote'), parseSexpr(state));
+		}
+		
+		if (c == '"') return parseString(state);
+		if (c == '(') return parseList(state);
+		return parseAtom(state);
+	}
+	function parse(str) {
+		var state = new State(str);
+		var result = parseSexpr(state);
+		if (!state.empty()) {
+			throw "Leftover gook after parsing: " + state.str;
+		}
+		return result;
+	}
+	// A correct lisp parser can print parsable expressions. They should be symmetric.
+	// A bad example is javascript, where '"hello"' prints to ""hello"" in the console,
+	// but the console's output cannot be parsed again.
+	// Therefore printing a string should print quoted quotation marks
+	function prin1(value) {
+		console.log(_prin1(value));
+	}
+	function _prin1(value) {
+		// Note: this should print as far as it can instead of throwing on the end of the structure
+		if (nullp(value)) return "nil";
+		if (typeof(value) == 'number') return ""+value;
+		if (value instanceof Symbol) return value.toString();
+		if (typeof(value) == 'string') return '\"' + value + '\"';
+		if (value instanceof Closure) return '#closure';
+		if (value instanceof Cons) {
+			/* You're just printing a linked list, or more specifically,
+			just printing linked list if it's a cons, otherwise, the last cdr
+			is just printed as a dotted pair, unless it's a nill, in which case it doesn't print.
+			*/
+			var s = "(";
+			s += _prin1(value.car);
+			value = value.cdr;
+			while (value instanceof Cons) {
+				s += ' ' + _prin1(value.car);
+				value = value.cdr;
+			}
+			if (value !== null) s += ' . ' + _prin1(value);
+			s += ')';
+			return s;
+		}
+		if (typeof(value) == 'function') return "#" + value.name;
+		throw "Do not know how to print " + value;
+	}
+	
+	/* Evaluate an expression. Simplest value is nil.
+		nil
+		integer
+		string
+		symbol lookup the value in the environment
+		cons
+	*/
+		
+	// Hipster symbol table
+	function symbol(str) {
+		if (!symbol.table[str]) {
+			symbol.table[str] = new Symbol(str);
+		}
+		return symbol.table[str];
+	}
+	symbol.table = {};
+	function eq(a, b) {
+		return a === b;
+	}
+	function numberp(v) {
+		return typeof(v) == 'number';
+	}
+	function stringp(v) {
+		return typeof(v) == 'string';
+	}
+	function consp(c) {
+		return c instanceof Cons;
+	}
+	function symbolp(c) {
+		return c instanceof Symbol;
+	}
+	function listp(c) {
+		return consp(c);
+	}
+	function equal(a, b) {
+		// console.log('a=', _prin1(a), 'b=', _prin1(b));
+		if (eq(a, b)) return true;
+		if (consp(a) && consp(b)) {
+			if (equal(car(a), car(b))) {
+				return equal(cdr(a), cdr(b));
+			}
+		}
+		return false;
+	}
+	function list() {
+		// list(1, 2, 3, 4, 5) ==> cons( cons(...))
+		if (arguments.length == 0) return null;
+		var args = Array.prototype.slice.call(arguments);
+		return cons(arguments[0], list.apply(null, args.slice(1)));
+	}
+	
+	// Implementing car(value) gives you data independence compared to value.car or value.getCar()
+	
+	function cons(car, cdr) {
+		return new Cons(car, cdr);
+	}
+	function car(c) {
+		if (nullp(c)) return null;
+		return c.car;
+	}
+	function cdr(c) {
+		if (nullp(c)) return null;
+		return c.cdr;
+	}
+	function set(s, v) {
+		console.log('set ', s, v, _prin1(this));
+		var b = assoc(s, this); // b is the (symbol . value)
+		if (b == null) throw "Variable not defined " + _prin1(s);
+		return setcdr(b, v);
+	}
+	function setcar(c, v) {
+		// cons, value
+		if (!consp(c)) throw "Cannot setcar on not a cons: " + _prin1(c);
+		return c.car = v;
+	}
+	function setcdr(c, v) {
+		// cons, value
+		if (!consp(c)) throw "Cannot setcdr on not a cons: " + _prin1(c);
+		return c.cdr = v;
+	}
+	function nullp(c) {
+		if (c === null) return true;
+		return false;
+	}
+	function assoc(name, env) { // loop through env looking for name
+		// e.g.  env = ( (a . 3) (b . 5) )
+		if (nullp(env)) return null;
+		if (eq(car(car(env)), name)) return car(env);
+		return assoc(name, cdr(env));
+	}
+	/*
+	cons( cons('a', 3),
+	cons( cons("b", 5),
+	cons( cons("c", 7), 
+		null)))
+	*/
+	// var e = parse("((a . 3) . ((b . 5) . ((c . 7) . nil)))");
+	function lookup(s, env) {
+		var b = assoc(s, env);
+		if (b) return cdr(b);
+		throw "Variable not defined " + _prin1(s);
+	}
+	function lambda(lambda, env) {
+		return new Closure(lambda, env);
+		
+		// Or... use javascript's own closure capabilities
+		return function() {
+			var args = list.apply(null, Array.prototype.slice.call(arguments));
+			var fargs = car(cdr(lambda));
+			var newenv = bindlist(fargs, args, env);
+			var expression = car(cdr(cdr(lambda)));
+			return evaluate(expression, newenv);
+		}
+	}
+	function evallist(l, env) {
+		if (nullp(l)) return null;
+		return cons(evaluate(car(l), env), evallist(cdr(l), env));
+	}
+	function evaluate(value, env) {
+		if (nullp(value)) return null;
+		if (numberp(value)) return value;
+		if (stringp(value)) return value;
+		if (symbolp(value)) return lookup(value, env);
+		if (consp(value)) {
+			var f = car(value);
+			if (f == symbol('quote')) return car(cdr(value));
+			if (f == symbol('lambda')) return lambda(value, env); // this was listx, which printed a list
+			if (f == symbol('if')) {
+				var e = evaluate(car(cdr(value)), env);
+				if (e) {
+					return evaluate(car(cdr(cdr(value))), env);
+				} else {
+					return evaluate(car(cdr(cdr(cdr(value)))), env);
+				}
+			}
+			// if (f == symbol('define')) return define(value, env); // TODO: this is non-trivial. There is a difference between defining globally vs within the scope of a closure/lambda.
+				
+			/*
+			(lambda (f l) 
+				(if (nullp l) nil
+					(cons (f (car l))
+					      (map f (cdr l))
+					)
+				)
+			)
+			*/
+			// (map (lambda (x) (+ x x)) '(1 2 3))
+			
+			// This is a bad idea for a couple of reasons:
+			// 1. You're evaluating f many times, possibly creating generators
+			// 2. You're failing silently and printing what could be functions
+			// E.g. (f "asdf" "password")
+			// if (typeof(evaluate(f, env)) != 'function') {
+			// 	return cons(evaluate(f, env), cdr(value));
+			// }
+			return applicate(
+				evaluate(f, env),
+				evallist(cdr(value), env),
+				env
+			);
+		}
+		throw "Do not know how to print " + value;
+	}
+	function bindlist(fargs, args, env) {
+		if (nullp(fargs)) return env;
+		var s = car(fargs);
+		var v = car(args);
+		var rest = bindlist(cdr(fargs), cdr(args), env);
+		return cons(cons(s, v), rest);
+	}
+	function applicate(f, args, env) {
+		// This is unnecessary if you use javascript's built in closure capabilities
+		if (f instanceof Closure) { // commented out this block
+			// (set 'a (lambda (x) (+ x x)))
+			// (set 'a (lambda (x y) (* x y)))
+			
+			var lambda = f.lambda;
+			var fargs = car(cdr(lambda));
+			var newenv = bindlist(fargs, args, f.env);
+			var expression = car(cdr(cdr(lambda)));
+			return evaluate(expression, newenv);
+		}
+		if (typeof(f) != 'function') throw "Car is not a function: " + _prin1(f);
+		var result = f.apply(env, listToArray(args));
+		return result;
+	}
+	
+	// =========================================
+	// Non-hipster test framework
+	// =========================================
+	var tests = {
+		count : 0,
+		successes : 0,
+		unexpectedExceptions : 0,
+		failures : 0
+	}
+	function check(a, b) {
+		tests.count++;
+		// console.log('a=',a, 'b=',b); // This is a really cool console log
+		// if (a === b
+		// 	|| JSON.stringify(a) == JSON.stringify(b)
+		// 	|| a.toString() == b.toString() // TODO: not kosher, too much magic
+		// ) {
+		if (equal(a, b)) {
+			tests.successes++;
+			return;
+		}
+		tests.failures++;
+		console.error('Got >',a,'\< expected >',b,'\<');
+	}
+	function expectException(fn) {
+		tests.count++;
+		try {
+			fn();
+			tests.unexpectedExceptions++;
+			console.error("Should have thrown " + fn);
+		} catch(e) {
+			tests.successes++;
+			return true;
+		}
+	}
+	function testEvaluation() {
+		check(evaluate(null), null);
+		check(evaluate(1), 1);
+		check(evaluate("1"), "1");
+		
+		var e = window.e =
+		  cons( cons(symbol('a'), 3), 
+		  cons( cons(symbol('b'), 5),
+		  cons( cons(symbol('c'), 7),
+		  cons( cons(symbol('+'), function plus(a,b) { return a + b; }),
+		  cons( cons(symbol('eq'), eq),
+		  null
+		  )))));
+ 
+		var a = window.a = parse("(+ . (3 . (4 . nil)))");
+		check(evaluate(a, e), 7);
+		
+		// b = parse("(if . (nil . (2 . (3 . nil))))");
+		b = parse("(if . ((eq . (1 . (0 . nil))) . (2 . nil)))");
+		// prin1(b);
+		// prin1(evaluate(b, e));
+	}
+	function testParsing() {
+		check(parse('42'), 42);
+		check(parse('42a'), symbol('42a'));
+		check(parse('atom'), symbol('atom'));
+		check(parse('abc'), symbol('abc'));
+		expectException(()=>parse('"abc'));
+		expectException(()=>parse('abc"'));
+		expectException(()=>parse('abc)'));
+		expectException(()=>parse('abc('));
+		check(parse('(1 . 2)'), cons(1, 2));
+		// check(parse("'(3.4)"), )// TODO: fix this
+		expectException(()=>parse('(1 .2)'));
+		check(parse('(1 . (2 . (3 . (4 . nil))))'), cons(1, cons(2, cons(3, cons(4, null)))));
+		check(parse('()'), null);
+		check(parse('(1 2 3 4)'), cons(1, cons(2, cons(3, cons(4, null)))));
+		check(_prin1(parse('(1 2 3 4)')), '(1 2 3 4)');
+		// check(parse('(())'), [null]); // TODO: solve this
+		// check(parse('(asdf)'), list(symbol('asdf'))); // TODO: solve this
+		// (lambda (x) (+ x x) Expected match for /^[^\s\(\)\"\']+/ //TODO: fix this
+	}
+	function testPrinting() {
+		check(_prin1(null), "nil");
+		check(_prin1(1), "1");
+		check(_prin1(symbol('atom')), "atom");
+		check(_prin1("hello"), "\"hello\"");
+		check(_prin1(cons(1, cons(2, cons(3, cons(4, null))))), '(1 2 3 4)');
+	}
+	testParsing();
+	testPrinting();
+	testEvaluation();
+	
+	$(document).ready(function() {
+		/*
+		The way you bootstrap this is to implement the basic functions using
+		the same names as the symbols you would bind to functions in the lisp
+		environment. E.g. Your C code or your Javascript code could just be bound
+		into the environment as the values for symbols "+" or "list" or "eq", etc.
+		
+		The traditional implementation approach is to do a switch on the symbol, 
+		within eval and apply, but then you can't use them in your own C code
+		implementation.
+		
+		If you write your implementations of core operations in a lisp-y style
+		then you can eventually bind them into the environment table.
+		
+		The basic operations are cons, car, cdr, lambda, nullp, symbolp, numberp,
+		stringp, listp (essentially consp), eval, apply, +, negate (3 ==> -3)
+		which can be used to implement minus function, * (multiply), / (divide).
+		eq, cond, if can be used to implement <or, and, not>.
+		*/
+		
+		var environment = window.environment =
+			cons( cons(symbol('+'), function plus(a,b) { return a + b; }),
+			cons( cons(symbol('*'), function mult(a,b) { return a * b; }),
+			cons( cons(symbol('eq'), eq),
+			cons( cons(symbol('nullp'), nullp),
+			cons( cons(symbol('list'), list),
+			cons( cons(symbol('set'), set),
+			cons( cons(symbol('car'), car),
+			cons( cons(symbol('cdr'), cdr),
+			cons( cons(symbol('setcar'), setcar),
+			cons( cons(symbol('setcdr'), setcdr),
+			cons( cons(symbol('cons'), cons),
+			cons( cons(symbol('consp'), consp),
+			cons( cons(symbol('listp'), listp),
+			cons( cons(symbol('stringp'), stringp),
+			cons( cons(symbol('numberp'), numberp),
+			
+			null
+		)))))))))))))));
+		
+		function register(a, b) {
+			if (typeof(a) == 'function') {
+				environment = cons(cons(symbol(a.name), a), environment);
+			} else if (typeof(a) == 'string') {
+				environment = cons(cons(symbol(a), b), environment);
+			} else {
+				throw "Argument must be javascript function or string";
+			}
+		}
+		register('a', 7);
+		register(assoc);
+		
+		$('#input').change(function() {
+			var sexpr = $(this).val();
+			try {
+				var data = parse(sexpr);
+				var result = evaluate(data, environment);
+				var prin1Result = _prin1(result);
+				$("<div></div>").text(prin1Result).prependTo($('#output'));
+			} catch(e) {
+				$("<li style='color:red'></li>").text(e).prependTo($('#output'));
+			} finally {
+				$("<div></div>").text('> ' + sexpr).prependTo($('#output'));
+				$('#input').val('');
+			}
+		});
+		
+		// What is required for turing completeness is recursion and selection (conditional)
+		/*
+		Note these are equivalent in syntactical complexity...
+		function foo(a) {
+			return function() {
+				return a;
+			}
+		}
+		
+		(lambda (x) (lambda () x ))
+		
+		COOL STUFF
+(lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l)))))
+
+> (a (lambda (x) (+ x x)) '(1 2 3))
+Variable not defined nullp
+> a
+#closure
+> (set 'a (lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l))))))
+
+> (a (lambda (x) (+ x x)) '(1 2 3))
+(2 4 6)
+> a
+#closure
+> (set 'a (lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l))))))
+#closure
+		
+		Lisp in 3 acts around Portland.
+		*/
+	});
+</script>
+</head>
+<body>
+<input id='input' type='text' style='width:100%;'></input>
+<div id='output'></div>
+</body>
+</html>
