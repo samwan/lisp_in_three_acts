@@ -1,6 +1,5 @@
 <html>
 <head>
-<script src='jquery.js'></script>
 <script>
 	// e.g. expression
 	// 42
@@ -435,7 +434,7 @@
 	testPrinting();
 	testEvaluation();
 	
-	$(document).ready(function() {
+  window.addEventListener("load", function() {
 		/*
 		The way you bootstrap this is to implement the basic functions using
 		the same names as the symbols you would bind to functions in the lisp
@@ -487,51 +486,62 @@
 		register('a', 7);
 		register(assoc);
 		
-		$('#input').change(function() {
-			var sexpr = $(this).val();
-			try {
-				var data = parse(sexpr);
-				var result = evaluate(data, environment);
-				var prin1Result = _prin1(result);
-				$("<div></div>").text(prin1Result).prependTo($('#output'));
-			} catch(e) {
-				$("<li style='color:red'></li>").text(e).prependTo($('#output'));
-			} finally {
-				$("<div></div>").text('> ' + sexpr).prependTo($('#output'));
-				$('#input').val('');
-			}
-		});
-		
-		// What is required for turing completeness is recursion and selection (conditional)
-		/*
-		Note these are equivalent in syntactical complexity...
-		function foo(a) {
-			return function() {
-				return a;
-			}
+    function addToOutput(str) {
+      var outputDiv = document.querySelector('#output');
+      outputDiv.innerHTML = str + outputDiv.innerHTML;
+    }
+    document.querySelector('#input').addEventListener('change', function(event) {
+		var sexpr = event.target.value;
+		try {
+			var data = parse(sexpr);
+			var result = evaluate(data, environment);
+			var prin1Result = _prin1(result);
+        	addToOutput(`<div>${prin1Result}</div>`);
+		} catch(e) {
+        	addToOutput(`<div>${e}</div>`);
+			//outputDiv.innerHTML += `<div>${e}</div>`;
+			addToOutput(`<li style="color:red">${e}</li>`);
+			//$("<li style='color:red'></li>").text(e).prependTo($('#output'));
+		} finally {
+        	addToOutput(`<div>> ${sexpr}</div>`);
+			//$("<div></div>").text('> ' + sexpr).prependTo($('#output'));
+			// $('#input').val('');
+        	event.target.value = ''; 
 		}
-		
-		(lambda (x) (lambda () x ))
-		
-		COOL STUFF
-(lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l)))))
-
-> (a (lambda (x) (+ x x)) '(1 2 3))
-Variable not defined nullp
-> a
-#closure
-> (set 'a (lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l))))))
-
-> (a (lambda (x) (+ x x)) '(1 2 3))
-(2 4 6)
-> a
-#closure
-> (set 'a (lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l))))))
-#closure
-		
-		Lisp in 3 acts around Portland.
-		*/
 	});
+		
+	// What is required for turing completeness is recursion and selection (conditional)
+	/*
+	Note these are equivalent in syntactical complexity...
+	function foo(a) {
+		return function() {
+			return a;
+		}
+	}
+
+	(lambda (x) (lambda () x ))
+			
+	COOL STUFF
+	(lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l)))))
+
+	> (a (lambda (x) (+ x x)) '(1 2 3))
+	Variable not defined nullp
+	> a
+	#closure
+	> (set 'a (lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l))))))
+
+	> (a (lambda (x) (+ x x)) '(1 2 3))
+	(2 4 6)
+	> a
+	#closure
+	> (set 'a (lambda (f l) (if (nullp l) nil (cons (f (car l)) (a f (cdr l))))))
+	#closure
+	
+	With gratitude to Jonas S Karlsson
+	
+	Lisp in 3 acts around Portland.
+	*/
+});
 </script>
 </head>
 <body>
